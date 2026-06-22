@@ -41,7 +41,7 @@ Make sure **OceanSim is present** in one of these locations:
 OceanSim fork used in this project:
 - https://github.com/GRAAL-Lab/OceanSim
 
-Typical setup (clone into Isaac Sim `extsUser/` and checkout the required branch):
+Typical setup (clone the GitHub main branch into Isaac Sim `extsUser/`):
 ```bash
 export ISAACSIM_ROOT=/path/to/isaac-sim-5.1
 
@@ -50,10 +50,9 @@ cd "$ISAACSIM_ROOT/extsUser"
 
 git clone git@github.com:GRAAL-Lab/OceanSim.git
 cd OceanSim
-
-# Switch to a specific branch (example: gpu-ros2-publish)
 git fetch origin
-git checkout -b gpu-ros2-publish origin/gpu-ros2-publish
+git checkout main
+git pull origin main
 ```
 
 ### 3) ROS 2 + Isaac Sim ROS2 bridge
@@ -97,15 +96,16 @@ sudo apt-get install -y \
 > `librml` is not always available as a standard package; in this setup it is found as `/usr/local/lib/librml.so`.
 
 ### Configure + build (recommended layout)
-Clone the MVM repository (Bitbucket) and checkout the `python-bridge` branch:
+Clone the MVM repository from GitHub and use the main branch:
 ```bash
 export GRAAL_WS=${GRAAL_WS:-$HOME/graal_ws}
 mkdir -p "$GRAAL_WS"
 cd "$GRAAL_WS"
 
-git clone git@bitbucket.org:isme_robotics/marine_vehicle_models.git
+git clone git@github.com:GRAAL-Lab/marine_vehicle_models.git
 cd marine_vehicle_models
-git checkout python-bridge
+git checkout main
+git pull origin main
 
 export MVM_ROOT="$PWD"
 ```
@@ -203,16 +203,14 @@ After extracting, you should see files like:
 
 ### 1) One-time environment setup (per terminal)
 ```bash
+export ISAACSIM_ROOT=/path/to/isaac-sim-5.1
 export ISAAC_UW_ROOT=/path/to/IsaacSim_Underwater
+export OCEANSIM_ROOT=/path/to/OceanSim
+export MVM_ROOT=/path/to/marine_vehicle_models
+export MVM_PY_PATH="$MVM_ROOT/underwater_vehicle_model/build_isaac_py311"
 
 # Isaac Sim ROS bridge environment
 source "$ISAACSIM_ROOT/setup_ros_env.sh"
-
-# MVM Python module path
-export MVM_PY_PATH="$MVM_ROOT/underwater_vehicle_model/build_isaac_py311"
-
-# (optional) help the script locate OceanSim
-export ISAACSIM_ROOT=${ISAACSIM_ROOT:-/path/to/isaac-sim-5.1}
 ```
 
 ### 2) Run
