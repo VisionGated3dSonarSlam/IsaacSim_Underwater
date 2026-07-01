@@ -587,8 +587,60 @@ def main() -> None:
             viewport=False,
         )
 
+        # ==========================================
+        # ⚠️ OVERRIDE CAMERA PARAMETERS FOR BLUEROV ⚠️
+        # ==========================================
+        cam_prim = get_prim_at_path(str(uw_camera_cfg["prim_path"]))
+        if cam_prim.IsValid():
+            from pxr import Sdf, Gf
+            
+            # 1. Standard USD Lens & Aperture properties
+            cam_prim.GetAttribute("focalLength").Set(2.97)
+            cam_prim.GetAttribute("horizontalAperture").Set(20.955)
+            cam_prim.GetAttribute("verticalAperture").Set(15.71625)
+            
+            # USD clippingRange expects a Vec2f (near, far), NOT a Range1f!
+            clipping_range = cam_prim.GetAttribute("clippingRange")
+            if clipping_range:
+                clipping_range.Set(Gf.Vec2f(0.1, 100.0))
+            
+            # 2. Aggressively Force the Projection Type
+            proj_attr = cam_prim.GetAttribute("cameraProjectionType")
+            if not proj_attr:
+                proj_attr = cam_prim.CreateAttribute("cameraProjectionType", Sdf.ValueTypeNames.Token, False)
+            proj_attr.Set("pinholeOpenCV") 
+            
+            # 3. Use the TRUE internal USD attribute names (Isaac Sim reuses "ftheta" for OpenCV!)
+            cv_params = {
+                "fthetaWidth": 1920.0,
+                "fthetaHeight": 1080.0,
+                "fthetaCx": 960.0,
+                "fthetaCy": 540.0,
+                "openCVFx": 1060.71,  # This maps to UI: "OpenCV Fx"
+                "openCVFy": 1060.71,  # This maps to UI: "OpenCV Fy"
+                "fthetaMaxFov": 80.0,
+                "fthetaPolyB": 0.0,      # This maps to UI: "Poly k3"
+                "fthetaPolyC": 0.0,      # This maps to UI: "Poly k0"
+                "fthetaPolyD": 0.0,      # This maps to UI: "Poly k1"
+                "fthetaPolyE": 0.0,      # This maps to UI: "Poly k2"
+                "p0": 0.0,                 # This maps to UI: "OpenCV p1"
+                "p1": 0.0,                 # This maps to UI: "OpenCV p2"
+                "s0": 0.0,                 # This maps to UI: "OpenCV s1"
+                "s1": 0.0,                 # This maps to UI: "OpenCV s2"
+                "s2": 0.0,                 # This maps to UI: "OpenCV s3"
+                "s3": 0.0,                 # This maps to UI: "OpenCV s4"
+            }
+            
+            # Loop through and force all OpenCV params
+            for attr_name, val in cv_params.items():
+                attr = cam_prim.GetAttribute(attr_name)
+                if not attr:
+                    attr = cam_prim.CreateAttribute(attr_name, Sdf.ValueTypeNames.Float, False)
+                attr.Set(float(val))
+
+
         camera_graph_path = "/ROS2UWCameraGraph"
-        camera_frame_skip = max(0, int(round(render_fps / max(float(uw_camera_cfg["frequency_hz"]), 1e-6))) - 1)
+        camera_frame_skip = 0#max(0, int(round(render_fps / max(float(uw_camera_cfg["frequency_hz"]), 1e-6))) - 1)
         og.Controller.edit(
             {"graph_path": camera_graph_path, "evaluator_name": "execution"},
             {

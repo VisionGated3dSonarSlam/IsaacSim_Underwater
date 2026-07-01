@@ -1,0 +1,50 @@
+{
+  "camera_model": {
+    "fx": 1060.70996,
+    "fy": 1060.70996,
+    "cx": 960.0,
+    "cy": 540.0,
+    "width": 1920,
+    "height": 1080,
+    "distortion_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
+  },
+  "topics": {
+    "image_topic": "/IsaacSim/uw_camera/processed",
+    "pointcloud_topic": "/sonar_point_cloud",
+    "colored_pointcloud_topic": "/sonar/colored_point_cloud"
+  },
+  "paths": {
+    "calibration_image_dir": "calibration_data/images",
+    "calibration_pointcloud_dir": "calibration_data/pointclouds",
+    "calibration_output_dir": "calibration_data",
+    "annotated_image_dir": "annotated_images",
+    "cluster_dir": "clusters",
+    "verification_dir": "verification_plys",
+    "image_centroids_csv": "image_centroids_2d_undistorted.csv",
+    "centroid_results_csv": "centroid_results.csv"
+  },
+  "sphere": {
+    "radius_m": 0.2,
+    "discard_inner_percentile": 30
+  },
+  "thresholds": {
+    "sync_tolerance_sec": 0.05,
+    "colorizer_slop_sec": 0.1,
+    "black_v_max": 45,
+    "plane_distance_threshold": 0.2,
+    "dbscan_eps": 0.4,
+    "dbscan_min_points": 10,
+    "cluster_min_points_for_cleaning": 20,
+    "cluster_min_points_to_save": 30,
+    "outlier_nb_neighbors": 20,
+    "outlier_std_ratio": 2.0
+  },
+  "extrinsics": {
+    "translation": [0.0184, 0.0882, -0.1324],
+    "rotation_matrix": [
+      [1.0, 0.0008, 0.0006],
+      [-0.0009, 0.9667, 0.2557],
+      [-0.0004, -0.2557, 0.9668]
+    ]
+  }
+}
