@@ -1,7 +1,6 @@
 
 import argparse
 import json
-import math
 import os
 import sys
 import time
@@ -59,226 +58,6 @@ def _build_oceansim_uw_params(uw_camera_cfg: dict) -> np.ndarray:
     atten_coeff = np.asarray(effects.get("atten_coeff", [0.05, 0.05, 0.05]), dtype=np.float32)
     backscatter_coeff = np.asarray(effects.get("backscatter_coeff", [0.05, 0.05, 0.2]), dtype=np.float32)
     return np.concatenate((backscatter_value, backscatter_coeff, atten_coeff)).astype(np.float32, copy=False)
-
-
-def purge_baked_ros2_graphs(verbose: bool = True) -> int:
-    """Remove OmniGraph ROS2 graphs that were saved into the stage.
-
-    Saving the stage from the Isaac Sim GUI while the simulator is running bakes the ROS2
-    publisher graphs into the USD file, because this script creates them at fixed root-level
-    paths (/ROS2RtxLidarGraph, /ROS2ProcessedUWCameraGraph, ...). On the NEXT launch,
-    og.Controller.edit() then fails with
-
-        Failed to create ComputeGraph "/ROS2RtxLidarGraph". A graph already exists at this path.
-        OmniGraphError: Failed to wrap graph in node given {...}
-
-    and the application exits before it renders a single frame. The USD is not corrupt and
-    the scene is fine -- it simply now contains prims the script insists on creating itself.
-
-    Deleting them right after the stage loads makes this script authoritative over its own
-    graphs, so a stray Ctrl-S can never brick a launch again. Only root-level prims whose
-    name begins with "ROS2" are touched, so scene content is never at risk. Nothing is
-    written back to disk: the USD keeps the extra prims, they are just removed from the
-    in-memory stage on every load.
-    """
-    try:
-        import omni.usd
-
-        stage = omni.usd.get_context().get_stage()
-        if stage is None:
-            return 0
-        doomed = [
-            prim.GetPath()
-            for prim in stage.GetPseudoRoot().GetChildren()
-            if prim.GetName().startswith("ROS2")
-        ]
-        for path in doomed:
-            stage.RemovePrim(path)
-        if doomed and verbose:
-            print(f"[stage] removed {len(doomed)} baked ROS2 graph prim(s) saved into the USD:")
-            for path in doomed:
-                print(f"[stage]   {path}")
-            print("[stage] (harmless -- this script recreates them; save the stage again and "
-                  "they come back)")
-        return len(doomed)
-    except Exception as exc:  # never let cleanup stop the simulator from starting
-        print(f"[stage] baked-graph cleanup skipped: {exc}")
-        return 0
-
-
-def compute_camera_optics(uw_camera_cfg: dict) -> dict:
-    """Derive USD camera apertures from a real lens/sensor specification.
-
-    Isaac Sim renders a `pinhole` camera from `focalLength` and `horizontalAperture`;
-    the openCVFx/openCVFy attributes are only consulted for the ftheta/fisheye projection
-    types, so setting those alone does NOT change the field of view. The default
-    horizontalAperture of 20.955 mm is the 35 mm-film value, which with f = 2.97 mm gives a
-    148 deg horizontal FOV -- nothing like the camera being modelled.
-
-    Two self-consistent ways to specify the real camera, chosen by `optics.mode`:
-
-      "fov"    - match the lens datasheet's quoted horizontal FOV. Aperture is solved from
-                 it: h_aperture = 2 * f * tan(FOV_h / 2).
-      "sensor" - match the physical sensor: h_aperture = width * pixel_pitch.
-
-    For the BlueRobotics Low-Light HD USB camera (Sony IMX322, 1/2.9", 2.8 um pixels,
-    f = 2.97 mm) the two disagree by about 4 deg (80.0 vs 84.3), because the quoted FOV is a
-    real lens measurement that includes its 1% distortion while the sensor calculation is an
-    ideal pinhole. "fov" is the default: the datasheet number is what a reader will check,
-    and the visual front-end models no distortion anyway.
-
-    Note on the datasheet's "80 deg H x 64 deg V": that pair is only self-consistent on a
-    4:3 frame (tan(32)/tan(40) = 0.745 ~ 3/4). This camera records 16:9, which crops the
-    vertical, so the correct vertical FOV here is ~50.5 deg, not 64 deg. Vertical aperture is
-    therefore always derived from the image aspect ratio and square pixels -- which also
-    fixes a latent bug in the previous hard-coded values, where the aperture pair was 4:3
-    while the resolution was 16:9.
-    """
-    optics = uw_camera_cfg.get("optics") or {}
-    width = int(uw_camera_cfg["resolution"][0])
-    height = int(uw_camera_cfg["resolution"][1])
-    focal_mm = float(optics.get("focal_length_mm", 2.97))
-    mode = str(optics.get("mode", "fov")).strip().lower()
-
-    if mode == "sensor":
-        pixel_mm = float(optics.get("pixel_size_um", 2.8)) * 1e-3
-        h_aperture = width * pixel_mm
-        v_aperture = height * pixel_mm
-    else:
-        fov_h = math.radians(float(optics.get("horizontal_fov_deg", 80.0)))
-        h_aperture = 2.0 * focal_mm * math.tan(fov_h * 0.5)
-        # Square pixels: aperture aspect must equal image aspect or the render is stretched.
-        v_aperture = h_aperture * height / width
-
-    fov_h = 2.0 * math.atan(h_aperture / (2.0 * focal_mm))
-    fov_v = 2.0 * math.atan(v_aperture / (2.0 * focal_mm))
-    return {
-        "mode": mode,
-        "focal_length_mm": focal_mm,
-        "horizontal_aperture_mm": h_aperture,
-        "vertical_aperture_mm": v_aperture,
-        "fov_h_deg": math.degrees(fov_h),
-        "fov_v_deg": math.degrees(fov_v),
-        "fx": (width * 0.5) / math.tan(fov_h * 0.5),
-        "fy": (height * 0.5) / math.tan(fov_v * 0.5),
-        "cx": width * 0.5,
-        "cy": height * 0.5,
-        "width": width,
-        "height": height,
-    }
-
-
-class ExtraTurbidityStreams:
-    """Publish extra camera streams at other turbidity levels from a SINGLE render.
-
-    Why this is nearly free
-    -----------------------
-    The expensive work is the RTX render, which produces two annotator outputs: `rgba` and
-    `distance_to_camera`. The underwater effect is then just a per-pixel Warp kernel over
-    those two buffers (Jaffe-McGlamery: attenuation + backscatter, nine coefficients). So an
-    extra visibility level costs one more kernel launch over buffers already resident on the
-    GPU -- not another camera, and not another render.
-
-    Why it matters experimentally
-    -----------------------------
-    Recording clear and turbid views of the SAME instant means the arms can be compared
-    pairwise: identical trajectory, identical sonar returns and noise realisation, identical
-    IMU, identical ground truth. The only difference is the image stream. That removes
-    between-run variance, which on this rig reached 3.45 m ATE control-to-control and made
-    single-run comparisons uninterpretable.
-
-    This reads two private annotator handles off UW_Camera (`_rgba_annot`, `_depth_annot`).
-    They are the same handles `_process_underwater_frame()` uses; touching them is the price
-    of not forking the vendored OceanSim extension, which an Isaac Sim update would revert.
-    """
-
-    def __init__(self, uw_camera, streams_cfg, profile, frame_id, ros_namespace, queue_size):
-        import warp as wp
-        from isaacsim.oceansim.pipeline.ros2_graphs import create_ros2_image_graph
-        # warp is only importable once SimulationApp has started, so these imports are local
-        # rather than module-level -- and OceanSim already ships the RGBA->RGB kernel.
-        from isaacsim.oceansim.sensors.UW_Camera import _rgba_to_rgb
-        from isaacsim.oceansim.utils.UWrenderer_utils import UW_render
-
-        self._wp = wp
-        self._rgba_to_rgb = _rgba_to_rgb
-        self._uw_render = UW_render
-        self._camera = uw_camera
-        self._streams = []
-
-        width, height = uw_camera.get_resolution()
-        for index, entry in enumerate(streams_cfg):
-            turbidity = float(entry["turbidity"])
-            topic = str(entry["topic"])
-            backscatter_value, atten_coeff, backscatter_coeff = profile.coefficients(turbidity)
-            attrs = create_ros2_image_graph(
-                graph_path=f"/ROS2ProcessedUWCameraGraphExtra{index}",
-                topic_name=topic,
-                frame_id=frame_id,
-                ros_namespace=ros_namespace,
-                queue_size=queue_size,
-                encoding="rgb8",
-                cuda_device_index=uw_camera._processed_cuda_device_index,
-                width=width,
-                height=height,
-                buffer_size=int(width * height * 3),
-            )
-            rgb = wp.zeros(shape=(height, width, 3), dtype=wp.uint8, device=uw_camera._device)
-            if attrs["data_ptr_attr"] is not None:
-                attrs["data_ptr_attr"].set(int(rgb.ptr))
-            if attrs["data_attr"] is not None:
-                attrs["data_attr"].set([])
-            self._streams.append({
-                "name": str(entry.get("name", f"extra{index}")),
-                "turbidity": turbidity,
-                "topic": topic,
-                "backscatter_value": wp.vec3f(*[float(v) for v in backscatter_value]),
-                "atten_coeff": wp.vec3f(*[float(v) for v in atten_coeff]),
-                "backscatter_coeff": wp.vec3f(*[float(v) for v in backscatter_coeff]),
-                "rgba": None,
-                "rgb": rgb,
-                "attrs": attrs,
-            })
-            print(f"[turbidity-stream] {entry.get('name', index)}: t={turbidity:.2f} -> {topic}")
-
-    def step(self) -> None:
-        wp = self._wp
-        raw_rgba = self._camera._rgba_annot.get_data()
-        depth = self._camera._depth_annot.get_data()
-        if raw_rgba.size == 0 or depth.size == 0:
-            return
-
-        width, height = self._camera.get_resolution()
-        launch_dim = np.flip(self._camera.get_resolution())
-        for stream in self._streams:
-            if stream["rgba"] is None or stream["rgba"].shape != raw_rgba.shape:
-                stream["rgba"] = wp.zeros_like(raw_rgba)
-            else:
-                stream["rgba"].zero_()
-            wp.launch(
-                dim=launch_dim,
-                kernel=self._uw_render,
-                inputs=[raw_rgba, depth, stream["backscatter_value"],
-                        stream["atten_coeff"], stream["backscatter_coeff"]],
-                outputs=[stream["rgba"]],
-            )
-            wp.launch(dim=(height, width), kernel=self._rgba_to_rgb,
-                      inputs=[stream["rgba"], stream["rgb"]])
-
-        # One sync for every stream, after all launches, before ROS reads the pointers.
-        wp.synchronize()
-        for stream in self._streams:
-            attrs = stream["attrs"]
-            if attrs["width_attr"] is not None:
-                attrs["width_attr"].set(int(width))
-            if attrs["height_attr"] is not None:
-                attrs["height_attr"].set(int(height))
-            if attrs["buffer_size_attr"] is not None:
-                attrs["buffer_size_attr"].set(int(stream["rgb"].size))
-            if attrs["data_ptr_attr"] is not None:
-                attrs["data_ptr_attr"].set(int(stream["rgb"].ptr))
-            if attrs["data_attr"] is not None:
-                attrs["data_attr"].set([])
 
 
 def _default_processed_image_topic(raw_topic: str) -> str:
@@ -615,11 +394,6 @@ def main() -> None:
         raise RuntimeError(f"Failed to open map stage: {map_usd}")
     while is_stage_loading():
         simulation_app.update()
-
-    # Must run BEFORE any og.Controller.edit() call below, or graph creation fails on a
-    # stage that was ever saved from the GUI while the simulator was running.
-    purge_baked_ros2_graphs()
-
     _apply_imaging_sonar_semantics(sensors_cfg.get("imaging_sonar", {}), get_prim_at_path, add_labels)
 
     # 2) Ensure robot prim exists (embedded in map USD).
@@ -787,9 +561,6 @@ def main() -> None:
     # 3) Attach OceanSim camera and publish raw + underwater images.
     uw_camera_cfg = sensors_cfg["uw_camera"]
     uw_camera = None
-    processed_every = 1
-    processed_tick = 0
-    extra_turbidity_streams = None
     processed_image_data_attr = None
     processed_image_buffer_size_attr = None
     processed_image_width_attr = None
@@ -824,27 +595,9 @@ def main() -> None:
             from pxr import Sdf, Gf
             
             # 1. Standard USD Lens & Aperture properties
-            _optics = compute_camera_optics(uw_camera_cfg)
-            cam_prim.GetAttribute("focalLength").Set(_optics["focal_length_mm"])
-            cam_prim.GetAttribute("horizontalAperture").Set(_optics["horizontal_aperture_mm"])
-            cam_prim.GetAttribute("verticalAperture").Set(_optics["vertical_aperture_mm"])
-            print(
-                "[camera] optics mode=%s  f=%.3f mm  aperture=%.5f x %.5f mm\n"
-                "[camera] FOV = %.2f deg H x %.2f deg V   (%dx%d)"
-                % (_optics["mode"], _optics["focal_length_mm"],
-                   _optics["horizontal_aperture_mm"], _optics["vertical_aperture_mm"],
-                   _optics["fov_h_deg"], _optics["fov_v_deg"],
-                   _optics["width"], _optics["height"])
-            )
-            # The SLAM side keeps its own copy of the intrinsics, in
-            # FAST_LIO_UnderWater/config/sim.yaml under `visual:`. They are NOT read from
-            # /camera_info, so if they disagree with the values printed here the sonar->image
-            # projection silently goes wrong. Print them so the two cannot drift apart.
-            print(
-                "[camera] >>> set these in FAST_LIO_UnderWater/config/sim.yaml `visual:`\n"
-                "[camera] >>>   fx: %.4f   fy: %.4f   cx: %.1f   cy: %.1f"
-                % (_optics["fx"], _optics["fy"], _optics["cx"], _optics["cy"])
-            )
+            cam_prim.GetAttribute("focalLength").Set(2.97)
+            cam_prim.GetAttribute("horizontalAperture").Set(20.955)
+            cam_prim.GetAttribute("verticalAperture").Set(15.71625)
             
             # USD clippingRange expects a Vec2f (near, far), NOT a Range1f!
             clipping_range = cam_prim.GetAttribute("clippingRange")
@@ -859,15 +612,13 @@ def main() -> None:
             
             # 3. Use the TRUE internal USD attribute names (Isaac Sim reuses "ftheta" for OpenCV!)
             cv_params = {
-                "fthetaWidth": float(_optics["width"]),
-                "fthetaHeight": float(_optics["height"]),
-                "fthetaCx": _optics["cx"],
-                "fthetaCy": _optics["cy"],
-                # Inert under cameraProjectionType="pinhole" (they apply to ftheta/fisheye),
-                # but kept consistent so the UI does not show contradictory numbers.
-                "openCVFx": _optics["fx"],
-                "openCVFy": _optics["fy"],
-                "fthetaMaxFov": _optics["fov_h_deg"],
+                "fthetaWidth": 1920.0,
+                "fthetaHeight": 1080.0,
+                "fthetaCx": 960.0,
+                "fthetaCy": 540.0,
+                "openCVFx": 1060.71,  # This maps to UI: "OpenCV Fx"
+                "openCVFy": 1060.71,  # This maps to UI: "OpenCV Fy"
+                "fthetaMaxFov": 80.0,
                 "fthetaPolyB": 0.0,      # This maps to UI: "Poly k3"
                 "fthetaPolyC": 0.0,      # This maps to UI: "Poly k0"
                 "fthetaPolyD": 0.0,      # This maps to UI: "Poly k1"
@@ -889,19 +640,7 @@ def main() -> None:
 
 
         camera_graph_path = "/ROS2UWCameraGraph"
-        # Throttle the camera to its configured frequency_hz. This was hardcoded to 0,
-        # so the camera published on EVERY render frame -- at render_fps 300 that meant
-        # ~324 Hz of 6.22 MB frames (~2 GB/s) through the ROS bridge.
-        camera_frame_skip = max(0, int(round(render_fps / max(float(uw_camera_cfg["frequency_hz"]), 1e-6))) - 1)
-        # camera_frame_skip only reaches CameraHelperRgb/Info (image_raw, camera_info). The
-        # processed streams publish straight from the main loop, so without their own divider
-        # they run at the full render rate -- 150 Hz sim against a configured 30, i.e. 5x the
-        # data recorded into every bag for no benefit.
-        processed_every = camera_frame_skip + 1
-        print(f"[camera] frequency_hz={float(uw_camera_cfg['frequency_hz']):.1f} "
-              f"render_fps={render_fps} -> camera_frame_skip={camera_frame_skip} "
-              f"processed_every={processed_every} "
-              f"(processed streams publish 1 in {processed_every} render steps)")
+        camera_frame_skip = 0#max(0, int(round(render_fps / max(float(uw_camera_cfg["frequency_hz"]), 1e-6))) - 1)
         og.Controller.edit(
             {"graph_path": camera_graph_path, "evaluator_name": "execution"},
             {
@@ -939,25 +678,6 @@ def main() -> None:
             queue_size=queue_size,
             graph_path="/ROS2ProcessedUWCameraGraph",
         )
-
-        # Extra visibility streams rendered from the SAME frame (see ExtraTurbidityStreams).
-        # Guarded so a fault here can never stop the simulator from starting.
-        extra_streams_cfg = uw_camera_cfg.get("extra_turbidity_streams") or []
-        if extra_streams_cfg:
-            try:
-                from turbidity_control import TurbidityProfile
-
-                _turb_cfg = cfg.get("turbidity") or {}
-                extra_turbidity_streams = ExtraTurbidityStreams(
-                    uw_camera=uw_camera,
-                    streams_cfg=extra_streams_cfg,
-                    profile=TurbidityProfile(_turb_cfg.get("clear"), _turb_cfg.get("turbid")),
-                    frame_id=str(uw_camera_cfg["ros2_frame_id"]),
-                    ros_namespace=ros_namespace,
-                    queue_size=queue_size,
-                )
-            except Exception as extra_exc:
-                print(f"[turbidity-stream] disabled after error: {extra_exc}")
 
     # Runtime visibility control. Returns None unless config["turbidity"]["enabled"] is
     # set, so the simulator's default behaviour is unchanged when it is not used.
@@ -1980,13 +1700,9 @@ def main() -> None:
 
             camera_ms = 0.0
             if uw_camera is not None and render_this_step:
-                processed_tick += 1
-                if processed_every <= 1 or (processed_tick % processed_every) == 0:
-                    cam_start = time.perf_counter()
-                    uw_camera.step_processed()
-                    if extra_turbidity_streams is not None:
-                        extra_turbidity_streams.step()
-                    camera_ms = (time.perf_counter() - cam_start) * 1000.0
+                cam_start = time.perf_counter()
+                uw_camera.step_processed()
+                camera_ms = (time.perf_counter() - cam_start) * 1000.0
 
             loop_ms = (time.perf_counter() - loop_start) * 1000.0
             if realtime:

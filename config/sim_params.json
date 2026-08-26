@@ -1,14 +1,14 @@
 {
   "simulation": {
     "app": {
-      "headless": false  ,
+      "headless": true,
       "disable_viewport_updates": false,
       "enable_motion_bvh": true
     },
     "timing": {
-      "physics_hz": 120.0,
-      "render_fps": 60.0,
-      "realtime": false
+      "physics_hz": 150,
+      "render_fps": 150,
+      "realtime": true
     }
   },
   "map": {
@@ -20,8 +20,8 @@
     "velocity_topic": "/auv/velocity_actual",
     "acceleration_topic": "/auv/acceleration_actual",
     "translation": [
-      0.0,
-      0.0,
+      23.0,
+      29.0,
       0.0
     ],
     "orientation_rpy_deg": [
@@ -70,7 +70,25 @@
       "ros2_topic": "/IsaacSim/uw_camera/image_raw",
       "ros2_processed_topic": "/IsaacSim/uw_camera/processed",
       "ros2_camera_info_topic": "/IsaacSim/uw_camera/camera_info",
-      "ros2_frame_id": "uw_camera_link"
+      "ros2_frame_id": "uw_camera_link",
+      "optics": {
+        "mode": "fov",
+        "focal_length_mm": 2.97,
+        "horizontal_fov_deg": 80.0,
+        "pixel_size_um": 2.8
+      },
+      "extra_turbidity_streams": [
+        {
+          "name": "semi",
+          "turbidity": 0.25,
+          "topic": "/IsaacSim/uw_camera/processed_semi"
+        },
+        {
+          "name": "very",
+          "turbidity": 0.6,
+          "topic": "/IsaacSim/uw_camera/processed_very"
+        }
+      ]
     },
     "imaging_sonar": {
       "enabled": false,
@@ -128,7 +146,7 @@
       ],
       "ros2_topic": "/sonar_point_cloud",
       "ros2_frame_id": "three_d_sonar_link",
-      "frame_skip_count": 0,
+      "frame_skip_count": 1,
       "show_debug_view": false
     },
     "dvl": {
@@ -145,17 +163,24 @@
         0.0,
         0.0
       ],
-      "frequency_hz": 8,
+      "frequency_hz": 15,
       "ros2_topic": "/auv/dvl",
       "ros2_frame_id": "dvl_link",
       "elevation_deg": 22.5,
       "rotation_deg": 45.0,
-      "min_range_m": 0.1,
-      "max_range_m": 100.0,
-      "vel_cov": 0.0,
-      "depth_cov": 0.0,
+      "min_range_m": 0.05,
+      "max_range_m": 50.0,
+      "vel_cov": 0.0057425625,
+      "depth_cov": 0.0004,
       "beam_dropout_threshold": 2,
       "require_bottom_lock": true,
+      "random_seed": 13,
+      "random_dropout_probability": 0.04,
+      "range_dropout_start_m": 35.0,
+      "range_dropout_full_m": 50.0,
+      "range_dropout_probability": 1.0,
+      "min_dropout_duration_s": 1.0,
+      "forced_dropout_interval_s": 45.0,
       "debug_lines": false
     },
     "imu": {
@@ -172,9 +197,140 @@
         0.0,
         0.0
       ],
-      "frequency_hz": 100,
+      "frequency_hz": 150.0,
       "ros2_topic": "/auv/imu/data_raw",
-      "ros2_frame_id": "imu_link"
+      "ros2_frame_id": "imu_link",
+      "sensor_model": "Blue Robotics Navigator ICM-20602-style IMU",
+      "random_seed": 7,
+      "noise": {
+        "enable_white_noise": true,
+        "enable_bias_random_walk": true,
+        "include_gravity": true,
+        "publish_orientation": true,
+        "gravity": 9.80665,
+        "gyro_noise_density_rad_s_sqrt_hz": [
+          0.00013962634015954637,
+          0.00013962634015954637,
+          0.00013962634015954637
+        ],
+        "accel_noise_density_m_s2_sqrt_hz": [
+          0.00196133,
+          0.00196133,
+          0.00196133
+        ],
+        "gyro_bias_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "accel_bias_m_s2": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gyro_bias_random_walk_rad_s_sqrt_s": [
+          2e-05,
+          2e-05,
+          2e-05
+        ],
+        "accel_bias_random_walk_m_s2_sqrt_s": [
+          0.0002,
+          0.0002,
+          0.0002
+        ],
+        "orientation_noise_std_deg": [
+          0.1,
+          0.1,
+          0.1
+        ]
+      }
+    },
+    "magnetometer": {
+      "enabled": true,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientation_rpy_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "frequency_hz": 150.0,
+      "ros2_topic": "/auv/imu/magnetic_field",
+      "ros2_frame_id": "imu_link",
+      "sensor_model": "Blue Robotics Navigator primary compass (MMC5983MA-style)",
+      "local_magnetic_field_frame": "ENU",
+      "local_magnetic_field_ut": [
+        -4.75537810022174,
+        17.98356571986,
+        32.8983169172881
+      ],
+      "random_seed": 42,
+      "use_fixed_random_numbers": false,
+      "random_walk_N_ut_sqrt_s": [
+        0.042961330069618,
+        0.062378167063166,
+        0.0597385770466124
+      ],
+      "bias_instability_B_ut_s": [
+        0.01092987309125352,
+        0.00738818378593432,
+        0.0075266591902656
+      ],
+      "random_walk_K_ut_sqrt_s3": [
+        0.0003320726246842652,
+        0.0002353452387085916,
+        0.0003082246494525532
+      ],
+      "correlation_time_s": [
+        79.6349908634337,
+        497.649977057122,
+        85.2398861596715
+      ],
+      "enable_soft_iron_distortion": false,
+      "soft_iron_distortion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "enable_hard_iron_bias": false,
+      "hard_iron_bias_ut": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "enable_stochastic_error": true,
+      "enable_saturation": true,
+      "measurement_range_ut": [
+        800.0,
+        800.0,
+        800.0
+      ],
+      "enable_quantization": true,
+      "resolution_ut": [
+        0.025,
+        0.025,
+        0.025
+      ],
+      "covariance_ut2": [
+        0.0256,
+        0.0,
+        0.0,
+        0.0,
+        0.0256,
+        0.0,
+        0.0,
+        0.0,
+        0.0256
+      ]
     },
     "barometer": {
       "enabled": true,
@@ -188,14 +344,22 @@
         0.0,
         0.0
       ],
-      "frequency_hz": 100.0,
+      "frequency_hz": 150.0,
       "ros2_topic": "/auv/pressure/scaled2",
       "ros2_frame_id": "barometer_link",
       "surface_z": 0.0,
-      "fluid_density": 1025.0,
+      "fluid_density": 1028.0,
       "gravity": 9.80665,
       "surface_pressure": 101325.0,
-      "variance": 0.0
+      "sensor_model": "Blue Robotics Bar30 / MS5837-30BA-style pressure sensor",
+      "random_seed": 11,
+      "enable_bias": true,
+      "absolute_accuracy_pa": 20000.0,
+      "enable_white_noise": true,
+      "noise_std_pa": 40.3257448,
+      "enable_quantization": true,
+      "resolution_pa": 40.3257448,
+      "variance": 1626.173710055687
     }
   },
   "mvm": {
@@ -203,5 +367,66 @@
     "model_name": "BlueROV",
     "forces_topic": "/auv/forces_desired",
     "forces_msg_type": "Float64MultiArray"
+  },
+  "turbidity": {
+    "enabled": true,
+    "initial_turbidity": 0.0,
+    "ros_control": true,
+    "command_topic": "/sim/turbidity",
+    "state_topic": "/sim/turbidity_state",
+    "publish_period_s": 1.0,
+    "verbose": true,
+    "clear": {
+      "backscatter_value": [
+        0.0,
+        0.31,
+        0.24
+      ],
+      "backscatter_coeff": [
+        0.05,
+        0.05,
+        0.2
+      ],
+      "atten_coeff": [
+        0.05,
+        0.05,
+        0.05
+      ]
+    },
+    "turbid": {
+      "backscatter_value": [
+        0.55,
+        0.85,
+        0.8
+      ],
+      "backscatter_coeff": [
+        5.0,
+        5.0,
+        5.5
+      ],
+      "atten_coeff": [
+        3.0,
+        2.8,
+        2.6
+      ]
+    },
+    "schedule": {
+      "enabled": false,
+      "interpolate": true,
+      "keyframes": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          120.0,
+          0.0
+        ],
+        [
+          180.0,
+          0.9
+        ]
+      ]
+    }
   }
 }
