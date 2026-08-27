@@ -2,17 +2,21 @@
   "simulation": {
     "app": {
       "headless": true,
-      "disable_viewport_updates": false,
-      "enable_motion_bvh": true
+      "disable_viewport_updates": true,
+      "enable_motion_bvh": true,
+      "dlss_exec_mode": 0
     },
     "timing": {
-      "physics_hz": 150,
-      "render_fps": 150,
+      "physics_hz": 300.0,
+      "render_fps": 30.0,
       "realtime": true
+    },
+    "diagnostics": {
+      "log_sensor_rates": false
     }
   },
   "map": {
-    "usd_path": "Assets/BlueRov_world_calib.usd"
+    "usd_path": "Assets/BlueROV_World.usd"
   },
   "robot": {
     "prim_path": "/World/BROV_low",
@@ -88,7 +92,12 @@
           "turbidity": 0.6,
           "topic": "/IsaacSim/uw_camera/processed_very"
         }
-      ]
+      ],
+      "publish_raw": false,
+      "publish_processed": true,
+      "publish_camera_info": true,
+      "ros2_queue_size": 1,
+      "extra_turbidity_streams_enabled": false
     },
     "imaging_sonar": {
       "enabled": false,
@@ -132,7 +141,7 @@
     "rtx_lidar": {
       "enabled": true,
       "name": "ThreeDSonarLowFrequency",
-      "config_path": "Assets/ThreeDSonar_LowFrequency.json",
+      "config_path": "Assets/ThreeDSonar_LowFrequency_Noisy.json",
       "prim_path": "/World/BROV_low/ThreeDSonar",
       "translation": [
         0.09382,
@@ -146,8 +155,20 @@
       ],
       "ros2_topic": "/sonar_point_cloud",
       "ros2_frame_id": "three_d_sonar_link",
-      "frame_skip_count": 1,
-      "show_debug_view": false
+      "frame_skip_count": 0,
+      "show_debug_view": false,
+      "full_scan": false,
+      "adaptive_frame_skip": {
+        "enabled": true,
+        "target_publish_hz": 6.0,
+        "rate_domain": "simulation",
+        "tolerance_hz": 0.5,
+        "measurement_window_s": 5.0,
+        "warmup_s": 3.0,
+        "smoothing_factor": 0.5,
+        "min_frame_skip_count": 0,
+        "max_frame_skip_count": 120
+      }
     },
     "dvl": {
       "enabled": true,
@@ -170,7 +191,7 @@
       "rotation_deg": 45.0,
       "min_range_m": 0.05,
       "max_range_m": 50.0,
-      "vel_cov": 0.0057425625,
+      "vel_cov": 7.469509312790072e-06,
       "depth_cov": 0.0004,
       "beam_dropout_threshold": 2,
       "require_bottom_lock": true,
@@ -181,7 +202,8 @@
       "range_dropout_probability": 1.0,
       "min_dropout_duration_s": 1.0,
       "forced_dropout_interval_s": 45.0,
-      "debug_lines": false
+      "debug_lines": false,
+      "ros2_altitude_topic": "/auv/dvl/altitude"
     },
     "imu": {
       "enabled": true,
@@ -197,7 +219,7 @@
         0.0,
         0.0
       ],
-      "frequency_hz": 150.0,
+      "frequency_hz": 300.0,
       "ros2_topic": "/auv/imu/data_raw",
       "ros2_frame_id": "imu_link",
       "sensor_model": "Blue Robotics Navigator ICM-20602-style IMU",
@@ -206,7 +228,7 @@
         "enable_white_noise": true,
         "enable_bias_random_walk": true,
         "include_gravity": true,
-        "publish_orientation": true,
+        "publish_orientation": false,
         "gravity": 9.80665,
         "gyro_noise_density_rad_s_sqrt_hz": [
           0.00013962634015954637,
@@ -257,7 +279,7 @@
         0.0,
         0.0
       ],
-      "frequency_hz": 150.0,
+      "frequency_hz": 300.0,
       "ros2_topic": "/auv/imu/magnetic_field",
       "ros2_frame_id": "imu_link",
       "sensor_model": "Blue Robotics Navigator primary compass (MMC5983MA-style)",
@@ -344,7 +366,7 @@
         0.0,
         0.0
       ],
-      "frequency_hz": 150.0,
+      "frequency_hz": 300.0,
       "ros2_topic": "/auv/pressure/scaled2",
       "ros2_frame_id": "barometer_link",
       "surface_z": 0.0,
@@ -356,10 +378,10 @@
       "enable_bias": true,
       "absolute_accuracy_pa": 20000.0,
       "enable_white_noise": true,
-      "noise_std_pa": 40.3257448,
+      "noise_std_pa": 201.28838893555172,
       "enable_quantization": true,
       "resolution_pa": 40.3257448,
-      "variance": 1626.173710055687
+      "variance": 40652.52932807617
     }
   },
   "mvm": {
