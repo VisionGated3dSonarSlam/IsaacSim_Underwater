@@ -778,6 +778,7 @@ class ExtraTurbidityStreams:
 
     def __init__(self, uw_camera, streams_cfg, profile, frame_id, ros_namespace, queue_size):
         import warp as wp
+        import omni.graph.core as og_module
         from isaacsim.oceansim.pipeline.ros2_graphs import create_ros2_image_graph
         # warp is only importable once SimulationApp has started, so these imports are local
         # rather than module-level -- and OceanSim already ships the RGBA->RGB kernel.
@@ -785,6 +786,7 @@ class ExtraTurbidityStreams:
         from isaacsim.oceansim.utils.UWrenderer_utils import UW_render
 
         self._wp = wp
+        self._og = og_module
         self._rgba_to_rgb = _rgba_to_rgb
         self._uw_render = UW_render
         self._camera = uw_camera
@@ -825,7 +827,14 @@ class ExtraTurbidityStreams:
             })
             print(f"[turbidity-stream] {entry.get('name', index)}: t={turbidity:.2f} -> {topic}")
 
-    def step(self) -> None:
+    def step(self, sample_time: float) -> None:
+        """Publish every extra stream for the frame the main camera just published.
+
+        OceanSim's image graphs are on-demand: they only run when their impulse is fired,
+        so setting the buffer pointer alone publishes nothing. Each stream is stamped with
+        the SAME source rendering time as the main processed image, which is what keeps
+        the clear/semi/very arms paired frame-for-frame.
+        """
         wp = self._wp
         raw_rgba = self._camera._rgba_annot.get_data()
         depth = self._camera._depth_annot.get_data()
@@ -863,6 +872,16 @@ class ExtraTurbidityStreams:
                 attrs["data_ptr_attr"].set(int(stream["rgb"].ptr))
             if attrs["data_attr"] is not None:
                 attrs["data_attr"].set([])
+            if attrs.get("timestamp_attr") is not None:
+                attrs["timestamp_attr"].set(float(sample_time))
+            impulse = attrs.get("publish_impulse_attr")
+            graph = attrs.get("graph")
+            if impulse is not None and graph is not None:
+                impulse.set(True)
+                try:
+                    self._og.Controller.evaluate_sync(graph)
+                finally:
+                    impulse.set(False)
 
 
 def main() -> None:
@@ -1247,7 +1266,6 @@ def main() -> None:
     extra_turbidity_streams = None
     camera_frame_skip = 0
     camera_publish_processed = False
-    processed_camera_timestamp_attr = None
     if bool(uw_camera_cfg["enabled"]):
         camera_publish_raw = bool(uw_camera_cfg.get("publish_raw", True))
         camera_publish_processed = bool(uw_camera_cfg.get("publish_processed", True))
@@ -1351,9 +1369,6 @@ def main() -> None:
                 ros_namespace=ros_namespace,
                 queue_size=camera_queue_size,
                 graph_path="/ROS2ProcessedUWCameraGraph",
-            )
-            processed_camera_timestamp_attr = _use_explicit_image_sample_time(
-                "/ROS2ProcessedUWCameraGraph"
             )
 
             # Extra visibility streams rendered from the SAME frame, so the turbidity arms
@@ -2929,15 +2944,15 @@ def main() -> None:
             )
             if camera_due:
                 cam_start = time.perf_counter()
-                if processed_camera_timestamp_attr is not None and last_render_sample_time is not None:
-                    processed_camera_timestamp_attr.set(
-                        _record_sample_time("camera_processed", last_render_sample_time)
-                    )
-                if uw_camera.step_processed():
+                # OceanSim stamps the image with its source rendering time and returns it,
+                # or None when no new frame completed (it no longer republishes stale ones).
+                camera_sample_time = uw_camera.step_processed()
+                if camera_sample_time is not None:
+                    _record_sample_time("camera_processed", camera_sample_time)
                     sensor_publish_counts["camera_processed"] += 1
-                # Same tick, same underlying frame -- that pairing is the whole point.
-                if extra_turbidity_streams is not None:
-                    extra_turbidity_streams.step()
+                    # Same frame, same stamp -- only when the main camera actually published.
+                    if extra_turbidity_streams is not None:
+                        extra_turbidity_streams.step(camera_sample_time)
                 camera_ms = (time.perf_counter() - cam_start) * 1000.0
 
             rtx_lidar_render_this_step = (

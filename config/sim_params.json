@@ -1,7 +1,7 @@
 {
   "simulation": {
     "app": {
-      "headless": true,
+      "headless": false,
       "disable_viewport_updates": true,
       "enable_motion_bvh": true,
       "dlss_exec_mode": 0
@@ -97,7 +97,7 @@
       "publish_processed": true,
       "publish_camera_info": true,
       "ros2_queue_size": 1,
-      "extra_turbidity_streams_enabled": false
+      "extra_turbidity_streams_enabled": true
     },
     "imaging_sonar": {
       "enabled": false,
