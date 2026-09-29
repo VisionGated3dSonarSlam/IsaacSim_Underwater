@@ -827,8 +827,6 @@ class ExtraTurbidityStreams:
             })
             print(f"[turbidity-stream] {entry.get('name', index)}: t={turbidity:.2f} -> {topic}")
 
-    _TIMING_EVERY = 150   # frames between timing reports (~5 s at 30 Hz)
-
     def step(self, sample_time: float) -> None:
         """Publish every extra stream for the frame the main camera just published.
 
@@ -838,7 +836,6 @@ class ExtraTurbidityStreams:
         the clear/semi/very arms paired frame-for-frame.
         """
         wp = self._wp
-        t_start = time.perf_counter()
         raw_rgba = self._camera._rgba_annot.get_data()
         depth = self._camera._depth_annot.get_data()
         if raw_rgba.size == 0 or depth.size == 0:
@@ -861,12 +858,8 @@ class ExtraTurbidityStreams:
             wp.launch(dim=(height, width), kernel=self._rgba_to_rgb,
                       inputs=[stream["rgba"], stream["rgb"]])
 
-        # Sync only the camera's own stream, after all launches, before ROS reads the
-        # pointers -- exactly what OceanSim's main processed path does. A global
-        # wp.synchronize() also waits for the RTX renderer's in-flight work on the next
-        # frame, which costs a fixed stall per frame regardless of image resolution.
-        wp.synchronize_stream(self._camera._device)
-        t_kernels = time.perf_counter()
+        # One sync for every stream, after all launches, before ROS reads the pointers.
+        wp.synchronize()
         for stream in self._streams:
             attrs = stream["attrs"]
             if attrs["width_attr"] is not None:
@@ -889,22 +882,6 @@ class ExtraTurbidityStreams:
                     self._og.Controller.evaluate_sync(graph)
                 finally:
                     impulse.set(False)
-
-        # Where does the time go? kernels+sync vs the ROS publish (graph evaluation plus the
-        # bridge's GPU->host copy). Reported so a rate drop can be attributed, not guessed.
-        t_end = time.perf_counter()
-        self._t_kern = getattr(self, "_t_kern", 0.0) + (t_kernels - t_start)
-        self._t_pub = getattr(self, "_t_pub", 0.0) + (t_end - t_kernels)
-        self._t_n = getattr(self, "_t_n", 0) + 1
-        if self._t_n >= self._TIMING_EVERY:
-            print(
-                f"[turbidity-stream timing] {len(self._streams)} stream(s): "
-                f"kernels+sync {1000 * self._t_kern / self._t_n:.2f} ms, "
-                f"publish {1000 * self._t_pub / self._t_n:.2f} ms, "
-                f"total {1000 * (self._t_kern + self._t_pub) / self._t_n:.2f} ms per frame"
-            )
-            self._t_kern = self._t_pub = 0.0
-            self._t_n = 0
 
 
 def main() -> None:

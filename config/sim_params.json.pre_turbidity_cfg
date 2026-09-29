@@ -54,7 +54,6 @@
         1080
       ],
       "frequency_hz": 30.0,
-      "processed_turbidity": 0.0,
       "uw_effects": {
         "backscatter_value": [
           0.0,
@@ -86,21 +85,19 @@
         {
           "name": "semi",
           "turbidity": 0.25,
-          "topic": "/IsaacSim/uw_camera/processed_semi",
-          "enabled": true
+          "topic": "/IsaacSim/uw_camera/processed_semi"
         },
         {
           "name": "very",
           "turbidity": 0.6,
-          "topic": "/IsaacSim/uw_camera/processed_very",
-          "enabled": true
+          "topic": "/IsaacSim/uw_camera/processed_very"
         }
       ],
       "publish_raw": false,
       "publish_processed": true,
       "publish_camera_info": true,
       "ros2_queue_size": 1,
-      "extra_turbidity_streams_enabled":true
+      "extra_turbidity_streams_enabled": true
     },
     "imaging_sonar": {
       "enabled": false,
